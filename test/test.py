@@ -70,7 +70,7 @@ summary_result = {}
 """
 
 
-def push_2_summary_result(service_code, endpoint_name, trace_id):
+def push_2_summary_result(service_code, endpoint_name, duration, trace_id):
     global summary_result
     if not summary_result.__contains__(service_code):
         summary_result[service_code] = {}
@@ -106,7 +106,7 @@ def test():
             }
               total
           }}"
-        ,"variables":{"condition":{"queryDuration":{"start":"2021-09-27 103715","end":"2021-09-28 105215","step":"SECOND"},"traceState":"ALL","paging":{"pageNum":1,"pageSize":100,"needTotal":true},"queryOrder":"BY_DURATION","minTraceDuration":"1000","tags":[]}}}
+        ,"variables":{"condition":{"queryDuration":{"start":"2021-09-28 003715","end":"2021-09-28 105215","step":"SECOND"},"traceState":"ALL","paging":{"pageNum":1,"pageSize":100,"needTotal":true},"queryOrder":"BY_DURATION","minTraceDuration":"1000","tags":[]}}}
     """
     query_result = do_query(query)
     ignore_endpoint_names = ["/ping"]
@@ -118,8 +118,9 @@ def test():
         if item["isError"]:
             continue
         trace_id = item["traceIds"][0]
+        duration = item["duration"]
         service_code = query_by_trace_id(trace_id)
-        push_2_summary_result(service_code, endpoint_name, trace_id)
+        push_2_summary_result(service_code, endpoint_name, duration, trace_id)
 
 
 def do_alarm():
