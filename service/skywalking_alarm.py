@@ -147,7 +147,7 @@ class SkywalkingAlarm(object):
             duration_max = item["duration_max"]
             duration_avg = item["duration_avg"]
             timeout = "%ss~%ss(%ss)" % (
-                str(int(int(duration_min) / 1000)), str(int(int(str(int(int(duration_max) / 1000)), ) / 1000)),
+                str(int(int(duration_min) / 1000)), str(int(int(duration_max) / 1000)),
                 str(int(int(duration_avg) / 1000)))
             # query_service_url = self.get_query_service_url(service_name)
             follow_of_users, follow_of_phones = self.get_service_follow_of_user_name_phone_list(service)
