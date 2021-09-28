@@ -1,0 +1,9 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: executor-monitor-frontend
+  namespace: dev
+data:
+  application.yaml: |
+    xxx

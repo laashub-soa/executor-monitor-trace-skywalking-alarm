@@ -1,0 +1,42 @@
+---
+# 服务
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: executor-monitor-frontend
+  namespace: dev
+  labels:
+    app: executor-monitor-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: executor-monitor-frontend
+  template:
+    metadata:
+      labels:
+        app: executor-monitor-frontend
+    spec:
+      restartPolicy: Always
+      containers:
+        - name: executor-monitor-frontend
+          image: ctr-registry.local.wangjiahuan.com/ops/executor-monitor-frontend:0.0.1
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 100m
+              memory: 100Mi
+              ephemeral-storage: 1Gi
+            limits:
+              cpu: 5000m
+              memory: 5000Mi
+              ephemeral-storage: 10Gi
+          volumeMounts:
+            - mountPath: /usr/src/app/configs
+              name: conf-executor-monitor-frontend
+      volumes:
+        - name: conf-executor-monitor-frontend
+          configMap:
+            name: executor-monitor-frontend
+      imagePullSecrets:
+        - name: regcred

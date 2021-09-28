@@ -1,0 +1,51 @@
+# #############################告警配置
+# 钉钉webhook配置
+dingding_webhook_access_token:
+  - 1
+# 基础查询信息
+query:
+  base_url: "http://skywalking-trace-monitor.dev.local.xxx.com/graphql"
+  ignore_endpoints:
+    - "/ping"
+  duration_threshold: 500
+  timezone: 8
+# #############################用户
+# 用户组及用户
+# 用户信息: 用户码: 用户名称-手机号码
+user_info:
+  xxx: 1-1
+# 用户关注服务
+user_follow_service:
+  xxx:
+    - xxx
+# #############################服务
+# 服务列表, 确保每个服务都有人关注
+tasks:
+  realtime:
+    job:
+      logql: ""
+      query_time_range: "rel: 5m-0m"
+    trigger:
+      cron: "*/1 * * * *"
+    alarm:
+      is_at: False
+      maximum_tolerance_count: 5 #at人的最大容忍次数
+      total_template: "在{query_start_time}~{query_end_time}发现{damage_service_count}个异常接口, 持续{damage_time_duration}"
+      head_template: "| 服务名称 | 异常次数 | 超时程度(最小~最大(平均)) | 持续时间 | 项目关注人 |\n\n| -------- | -------- | -------- | ---------- |\n\n"
+      template: "|{endpoint_name}|{endpoint_count}次|{timeout}|{damage_time_duration}|{follow_of_users}|"
+      click_base_prefix: ""
+      click_base_url: ''
+#  fixedtime:
+#    job:
+#      logql: ""
+#      query_time_range: "fix: h0-h24"
+#    trigger:
+#      cron: "0 10,14,18 * * *"
+#    alarm:
+#      is_at: False
+#      maximum_tolerance_count: 5 #at人的最大容忍次数
+#      total_template: "在{query_start_time}~{query_end_time}发现{damage_service_count}个异常接口, 持续{damage_time_duration}"
+#      head_template: "| 服务名称 | 异常次数 | 超时程度(最小~最大(平均)) | 持续时间 | 项目关注人 |\n\n| -------- | -------- | -------- | ---------- |\n\n"
+#      template: "|{endpoint_name}|{endpoint_count}次|{timeout}|{damage_time_duration}|{follow_of_users}|"
+#      click_base_prefix: ""
+#      click_base_url: ''

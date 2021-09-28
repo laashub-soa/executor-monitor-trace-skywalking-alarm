@@ -5,9 +5,10 @@ import os
 import time
 from urllib import parse
 
-from component import skywalking, dingding_webhook
+from component import dingding_webhook
+from component.skywalking import Skywalking
 
-logger = logging.getLogger('loki_ruler')
+logger = logging.getLogger('skywalking_alarm')
 logger.setLevel(logging.DEBUG)
 
 
@@ -26,6 +27,9 @@ class SkywalkingAlarm(object):
         }
         self.now_time_second = 0
         self.service_mapping_follow_user = None  # 服务被关注的用户
+        self.query_time_start = 0
+        self.query_time_end = 0
+        self.is_fix_time_query = True
 
     # 获取上次业务受损时间点
     def get_init_service_damage_time_point(self):
@@ -43,7 +47,7 @@ class SkywalkingAlarm(object):
     def set_init_service_damage_time_point(self):
         with open(self.init_service_damage_time_point_path, "w", encoding="utf-8")as f:
             f.write(json.dumps(self.init_service_damage_time_point))
-            print(self.init_service_damage_time_point)
+            # print(self.init_service_damage_time_point)
 
     # 获取关注服务的用户及手机号码
     def get_service_follow_of_user_name_phone_list(self, service_name):
@@ -74,9 +78,11 @@ class SkywalkingAlarm(object):
 
     # 获取最精简化的时间点
     def get_single_time(self, time_point):
-        time_point_timestamp = time_point / 1000000 / 1000
-        target_datetime = datetime.datetime.fromtimestamp(time_point_timestamp)
-        return str(target_datetime.hour) + ":" + str(target_datetime.minute)
+        # str(int("2021-09-28 003715"[-6:-4]) + 8) + ":" + str(int("2021-09-28 003715"[-4:-2]))
+        if self.is_fix_time_query:
+            return str(int(time_point[-6:-4])) + ":" + str(int(time_point[-4:-2]))
+        return str(int(time_point[-6:-4]) + int(self.task_data["common"]["query_timezone"])) + ":" + str(
+            int(time_point[-4:-2]))
 
     # 获取最小化显示受损时间持续段
     def get_minimize_display_damage_time_duration(self, ori_time_duration):
@@ -109,47 +115,70 @@ class SkywalkingAlarm(object):
         logger.debug(query_service_url)
         return self.task_data["alarm"]["loki_click_base_prefix"] + parse.quote(query_service_url)
 
-    def gen_detail_alarm_msg(self, ori_alarm_data):
-        ori_alarm_data_list = []
-        for key in ori_alarm_data:
-            value = ori_alarm_data[key]["total_count"]
-            ori_alarm_data_list.append({"name": key, "count": value})
-        ori_alarm_data_list.sort(key=lambda x: x["count"], reverse=True)
+    def gen_total_alarm_msg(self, query_result):
+        # 生成总体告警头
+        alarm_query_start_time = self.get_single_time(self.query_time_start)  # 精确到小时分钟即可
+        alarm_query_end_time = self.get_single_time(self.query_time_end)
+        logger.debug(
+            "alarm_query_start_time: %s, alarm_query_end_time: %s" % (alarm_query_start_time, alarm_query_end_time))
+
+        if self.init_service_damage_time_point["total"] == 0:
+            alarm_damage_time_duration = "(首次)"
+            self.init_service_damage_time_point["total"] = self.now_time_second
+        else:
+            alarm_damage_time_duration = self.get_minimize_display_damage_time_duration(
+                self.now_time_second - self.init_service_damage_time_point["total"])
+        total_template = self.task_data["alarm"]["total_template"]
+        total_alarm_msg = total_template.format(query_start_time=alarm_query_start_time,
+                                                query_end_time=alarm_query_end_time,
+                                                damage_service_count=len(query_result),
+                                                damage_time_duration=alarm_damage_time_duration) + "\n\n"
+        return total_alarm_msg
+
+    def gen_detail_alarm_msg(self, query_result):
         alarm_msg_text = ""
         new_damage_time_point_each = {}
         at_user_list = []
-        for item in ori_alarm_data_list:
-            service_name = item["name"]
-            service_count = item["count"]
-            query_service_url = self.get_query_service_url(service_name)
-            follow_of_users, follow_of_phones = self.get_service_follow_of_user_name_phone_list(service_name)
-            if int(self.task_data["alarm"]["maximum_tolerance_count"]) < service_count:
+        for item in query_result:
+            endpoint = item["endpoint"]
+            service = item["service"]
+            endpoint_count = item["count"]
+            duration_min = item["duration_min"]
+            duration_max = item["duration_max"]
+            duration_avg = item["duration_avg"]
+            timeout = "%ss~%ss(%ss)" % (
+                str(int(int(duration_min) / 1000)), str(int(int(str(int(int(duration_max) / 1000)), ) / 1000)),
+                str(int(int(duration_avg) / 1000)))
+            # query_service_url = self.get_query_service_url(service_name)
+            follow_of_users, follow_of_phones = self.get_service_follow_of_user_name_phone_list(service)
+            if int(self.task_data["alarm"]["maximum_tolerance_count"]) < int(endpoint_count):
                 at_user_list += follow_of_phones
-            new_damage_time_point_each[service_name] = self.now_time_second  # 秒钟
+            new_damage_time_point_each[endpoint] = self.now_time_second  # 秒钟
             damage_time_duration_str = "(首次)"
-            if service_name not in self.init_service_damage_time_point["each"]:
-                self.init_service_damage_time_point["each"][service_name] = self.now_time_second
+            if endpoint not in self.init_service_damage_time_point["each"]:
+                self.init_service_damage_time_point["each"][endpoint] = self.now_time_second
             else:
                 damage_time_duration = self.now_time_second - int(
-                    self.init_service_damage_time_point["each"][service_name])
+                    self.init_service_damage_time_point["each"][endpoint])
                 damage_time_duration_str = self.get_minimize_display_damage_time_duration(damage_time_duration)
             follow_of_phone_str = ""
             for follow_of_phone in follow_of_phones:
                 follow_of_phone_str += "@" + str(follow_of_phone)
-            alarm_msg_text += self.task_data["alarm"]["template"].format(service_name=service_name,
-                                                                         query_service_url=query_service_url,
-                                                                         service_count=service_count,
-                                                                         follow_of_users=follow_of_phone_str,
-                                                                         damage_time_duration=damage_time_duration_str
+            alarm_msg_text += self.task_data["alarm"]["template"].format(endpoint_name=endpoint,
+                                                                         endpoint_count=endpoint_count,
+                                                                         timeout=timeout,
+                                                                         damage_time_duration=damage_time_duration_str,
+                                                                         follow_of_users=follow_of_phone_str
                                                                          ) + "\n\n"
         self.damage_time_point["each"] = new_damage_time_point_each
 
         return self.task_data["alarm"]["head_template"] + alarm_msg_text, list(set(at_user_list))
 
-    def convert_query_time_range(self, query_time_range):
+    def convert_query_time_range(self, query_time_range, timezone):
         """
         转换查询时间范围
         :param query_time_range: 查询时间范围
+        :param timezone: 时区值
         :return: 单位: 毫秒
         """
         # "rel: 5m-0m"
@@ -175,7 +204,7 @@ class SkywalkingAlarm(object):
                 raise Exception("数据格式解析异常: %s" % time_unit)
             return int(time_value)
 
-        def convert_fix_time_value_unit(ori_time_value_unit):
+        def convert_fix_time_value_unit(ori_time_value_unit, timezone):
             time_unit = ori_time_value_unit[:1]
             time_value = int(ori_time_value_unit[1:])
             if "h" == time_unit:
@@ -195,95 +224,52 @@ class SkywalkingAlarm(object):
 
         if "rel" == time_type:
             start_query_time = (datetime.datetime.now() - datetime.timedelta(
-                minutes=convert_rel_time_value_unit_2_minute(time_start))).timestamp()
+                minutes=convert_rel_time_value_unit_2_minute(time_start), hours=timezone)).timestamp()
             end_query_time = (datetime.datetime.now() - datetime.timedelta(
-                minutes=convert_rel_time_value_unit_2_minute(time_end))).timestamp()
+                minutes=convert_rel_time_value_unit_2_minute(time_end), hours=timezone)).timestamp()
+            self.is_fix_time_query = False
         elif "fix" == time_type:
-            start_query_time = convert_fix_time_value_unit(time_start)
-            end_query_time = convert_fix_time_value_unit(time_end)
+            start_query_time = convert_fix_time_value_unit(time_start, timezone)
+            end_query_time = convert_fix_time_value_unit(time_end, timezone)
         else:
             raise Exception("未知类型的查询时间, 请检查配置: job.query_time_range")
 
-        return int(start_query_time * 1000 * 1000000), int(end_query_time * 1000 * 1000000)
+        return datetime.datetime.fromtimestamp(int(start_query_time)).strftime(
+            "%Y-%m-%d %H%M%S"), datetime.datetime.fromtimestamp(int(end_query_time)).strftime("%Y-%m-%d %H%M%S")
 
     # 查询数据
     def query_data(self):
-        total_alarm_msg = ""
-        # 查询数据
-        self.loki_query_time_start, self.loki_query_time_end = self.convert_query_time_range(
-            self.task_data["job"]["query_time_range"]
+        self.query_time_start, self.query_time_end = self.convert_query_time_range(
+            self.task_data["job"]["query_time_range"],
+            self.task_data["common"]["query_timezone"],
         )
-        resp_data = loki.query(self.task_data["common"]["loki_base_uri"], self.task_data["job"]["logql"],
-                               self.loki_query_time_start,
-                               self.loki_query_time_end)
-        # 解析数据并生成告警字符串
-        # # 总体受损
-        logger.debug(resp_data)
-        total_damage_service_count = 0  # 服务数量
-        # total_damage_service_node_count = 0  # 服务节点数量
-
-        # # 服务受损
-        service_damage = {}  # {"oss-api": {"wjh-prod": {"lmbrn": {"file_name_1":1}}}}
-        query_result = resp_data["data"]["result"]
-        if len(query_result) < 1:  # 当没有查询到异常日志项的时候
-            # (重新)初始化数据
-            init_service_damage_time_point = self.get_init_service_damage_time_point()
-            init_service_damage_time_point["total"] = 0
-            init_service_damage_time_point["each"] = {}
-
-            return total_alarm_msg, {}
-        # 遍历loki查询数据
-        query_result = resp_data["data"]["result"]
-        for item in query_result:
-            # 解析值
-            metric = item["metric"]
-            service_name = metric["replicaset"]
-            # service_env = metric["environment"]
-            # service_node_name = metric["pod"] + "__" + metric["filename"]
-            service_node_count = int(item["values"][len(item["values"]) - 1][1])
-            # 加工数据
-            # 切入到当前服务层级
-            if service_name not in service_damage:
-                service_damage[service_name] = {"total_count": 0}
-                total_damage_service_count += 1
-            service_damage[service_name]["total_count"] += service_node_count
-
-        # 生成总体告警头
-        alarm_query_start_time = self.get_single_time(self.loki_query_time_start)  # 精确到小时分钟即可
-        alarm_query_end_time = self.get_single_time(self.loki_query_time_end)
-        logger.debug(
-            "alarm_query_start_time: %s, alarm_query_end_time: %s" % (alarm_query_start_time, alarm_query_end_time))
-        alarm_damage_service_count = total_damage_service_count
-
-        if self.init_service_damage_time_point["total"] == 0:
-            alarm_damage_time_duration = "(首次)"
-            self.init_service_damage_time_point["total"] = self.now_time_second
-        else:
-            alarm_damage_time_duration = self.get_minimize_display_damage_time_duration(
-                self.now_time_second - self.init_service_damage_time_point["total"])
-        total_alarm_msg = self.task_data["alarm"]["total_template"].format(query_start_time=alarm_query_start_time,
-                                                                           query_end_time=alarm_query_end_time,
-                                                                           damage_service_count=alarm_damage_service_count,
-                                                                           damage_time_duration=alarm_damage_time_duration) + "\n\n"
-        return total_alarm_msg, service_damage
+        base_url = self.task_data["common"]["query_base_url"]
+        duration_threshold = self.task_data["common"]["query_duration_threshold"]
+        ignore_endpoints = self.task_data["common"]["query_ignore_endpoints"]
+        resp_data = Skywalking(base_url).get_slow_endpoints(self.query_time_start, self.query_time_end,
+                                                            duration_threshold,
+                                                            ignore_endpoints)
+        return resp_data
 
     def start(self):
         access_token = self.task_data["common"]["dingding_webhook_access_token"][0]
         try:
             self.now_time_second = int(time.time())
             self.get_init_service_damage_time_point()
-            total_alarm_msg, query_loki_result = self.query_data()
-            if len(query_loki_result.keys()) < 1:
+            query_result = self.query_data()
+            if len(query_result) < 1:
+                self.set_init_service_damage_time_point()
                 return
+            logger.debug("query_result: " + str(query_result))
+            total_alarm_msg = self.gen_total_alarm_msg(query_result)
             logger.debug(total_alarm_msg)
-            logger.debug("query_loki_result: ", query_loki_result)
-            detail_alarm_msg, at_phone_list = self.gen_detail_alarm_msg(query_loki_result)
+            detail_alarm_msg, at_phone_list = self.gen_detail_alarm_msg(query_result)
             logger.debug(detail_alarm_msg)
-            logger.debug(at_phone_list)
+            # logger.debug(at_phone_list)
             # 告警
             if not self.task_data["alarm"]["is_at"]:
                 at_phone_list = []
-            alarm_result = dingding_webhook.alarm(access_token, "logging", total_alarm_msg + detail_alarm_msg,
+            alarm_result = dingding_webhook.alarm(access_token, "trace", total_alarm_msg + detail_alarm_msg,
                                                   at_phone_list)
             logger.debug(alarm_result)
         except Exception as e:

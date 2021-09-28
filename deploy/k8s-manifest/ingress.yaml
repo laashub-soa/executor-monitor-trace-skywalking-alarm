@@ -1,0 +1,40 @@
+---
+# 内部网络
+apiVersion: v1
+kind: Service
+metadata:
+  name: lokiexecutor-monitor-frontend
+  namespace: dev
+  labels:
+    app.kubernetes.io/name: executor-monitor-frontend
+spec:
+  selector:
+    app.kubernetes.io/name: executor-monitor-frontend
+  ports:
+    - name: for-8080
+      port: 80
+      targetPort: 8080
+  type: ClusterIP
+---
+# 外部网络
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: executor-monitor-frontend
+  namespace: dev
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+spec:
+  rules:
+    - host: service_frontend_monitor.dev.local.wangjiahuan.com
+      http:
+        paths:
+          - pathType: Prefix
+            path: "/"
+            backend:
+              service:
+                name: executor-monitor-frontend
+                port:
+                  number: 80

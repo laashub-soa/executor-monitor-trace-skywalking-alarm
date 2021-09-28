@@ -159,6 +159,7 @@ class Skywalking(object):
                 #       self.summary_result[service_name][key]["trace_id"])
                 result.append({
                     "endpoint": service_name + ":" + endpoint["endpoint"],
+                    "service": service_name,
                     "count": str(endpoint["count"]),
                     "trace_id": self.summary_result[service_name][key]["trace_id"],
                     "duration_min": self.summary_result[service_name][key]["duration_min"],
