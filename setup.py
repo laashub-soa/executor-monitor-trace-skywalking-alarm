@@ -26,7 +26,7 @@ def common_job(task_key, task_value):
         "dingding_webhook_access_token": app_conf["dingding_webhook_access_token"],
         "user_info": app_conf["user_info"],
         "user_follow_service": app_conf["user_follow_service"],
-        "query_timezone": app_conf["query"]["timezone"],
+        "query_compensate_timezone": app_conf["query"]["compensate_timezone"],
         "query_base_url": app_conf["query"]["base_url"],
         "query_ignore_endpoints": app_conf["query"]["ignore_endpoints"],
         "query_duration_threshold": app_conf["query"]["duration_threshold"],
