@@ -1,3 +1,5 @@
+import datetime
+
 import requests
 
 
@@ -124,8 +126,14 @@ class Skywalking(object):
         """ % (query_time_start, query_time_end, duration_threshold)
         return self.do_query(query)
 
-    def get_slow_endpoints(self, query_time_start, query_time_end, duration_threshold, ignore_endpoints):
+    def get_slow_endpoints(self, query_time_start, query_time_end, duration_threshold, ignore_endpoints,
+                           query_compensate_timezone):
         result = []
+        # 将补偿查询时区加到时间查询条件上, 并且转换为skywalking查询所需要的时间格式
+        query_time_start = (datetime.datetime.fromtimestamp(query_time_start) + datetime.timedelta(
+            hours=query_compensate_timezone)).strftime("%Y-%m-%d %H%M%S")
+        query_time_end = (datetime.datetime.fromtimestamp(query_time_end) + datetime.timedelta(
+            hours=query_compensate_timezone)).strftime("%Y-%m-%d %H%M%S")
         # 查询基础数据
         slow_endpoints = self.query_slow_endpoints(query_time_start, query_time_end, duration_threshold)
         for item in slow_endpoints["data"]["data"]["traces"]:

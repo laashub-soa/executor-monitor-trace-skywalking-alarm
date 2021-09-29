@@ -3,7 +3,6 @@ import json
 import logging
 import os
 import time
-from urllib import parse
 
 from component import dingding_webhook
 from component.skywalking import Skywalking
@@ -78,11 +77,7 @@ class SkywalkingAlarm(object):
 
     # 获取最精简化的时间点
     def get_single_time(self, time_point):
-        # str(int("2021-09-28 003715"[-6:-4]) + 8) + ":" + str(int("2021-09-28 003715"[-4:-2]))
-        if self.is_fix_time_query:
-            return str(int(time_point[-6:-4])) + ":" + str(int(time_point[-4:-2]))
-        return str(int(time_point[-6:-4]) + int(self.task_data["common"]["query_timezone"])) + ":" + str(
-            int(time_point[-4:-2]))
+        return datetime.datetime.fromtimestamp(time_point).strftime("%H:%M")
 
     # 获取最小化显示受损时间持续段
     def get_minimize_display_damage_time_duration(self, ori_time_duration):
@@ -105,15 +100,6 @@ class SkywalkingAlarm(object):
             ori_time_duration = ori_time_duration % 60
         result += str(int(ori_time_duration)) + "秒"
         return result
-
-    # 获取服务点击链接
-    def get_query_service_url(self, service_name):
-        query_service_url = self.task_data["alarm"]["loki_click_base_url"] \
-            .replace("{SERVICE_NAME}", service_name) \
-            .replace("{QUERY_FROM_TIME}", str(int(self.loki_query_time_start / 1000000))) \
-            .replace("{QUERY_TO_TIME}", str(int(self.loki_query_time_end / 1000000)))
-        logger.debug(query_service_url)
-        return self.task_data["alarm"]["loki_click_base_prefix"] + parse.quote(query_service_url)
 
     def gen_total_alarm_msg(self, query_result):
         # 生成总体告警头
@@ -174,11 +160,10 @@ class SkywalkingAlarm(object):
 
         return self.task_data["alarm"]["head_template"] + alarm_msg_text, list(set(at_user_list))
 
-    def convert_query_time_range(self, query_time_range, timezone):
+    def convert_query_time_range(self, query_time_range):
         """
         转换查询时间范围
         :param query_time_range: 查询时间范围
-        :param timezone: 时区值
         :return: 单位: 毫秒
         """
         # "rel: 5m-0m"
@@ -204,7 +189,7 @@ class SkywalkingAlarm(object):
                 raise Exception("数据格式解析异常: %s" % time_unit)
             return int(time_value)
 
-        def convert_fix_time_value_unit(ori_time_value_unit, timezone):
+        def convert_fix_time_value_unit(ori_time_value_unit):
             time_unit = ori_time_value_unit[:1]
             time_value = int(ori_time_value_unit[1:])
             if "h" == time_unit:
@@ -223,32 +208,32 @@ class SkywalkingAlarm(object):
             return time_value
 
         if "rel" == time_type:
-            start_query_time = (datetime.datetime.now() - datetime.timedelta(
-                minutes=convert_rel_time_value_unit_2_minute(time_start), hours=timezone)).timestamp()
-            end_query_time = (datetime.datetime.now() - datetime.timedelta(
-                minutes=convert_rel_time_value_unit_2_minute(time_end), hours=timezone)).timestamp()
+            start_query_time = (datetime.datetime.now()
+                                - datetime.timedelta(minutes=convert_rel_time_value_unit_2_minute(time_start))
+                                ).timestamp()
+            end_query_time = (datetime.datetime.now()
+                              - datetime.timedelta(minutes=convert_rel_time_value_unit_2_minute(time_end))
+                              ).timestamp()
             self.is_fix_time_query = False
         elif "fix" == time_type:
-            start_query_time = convert_fix_time_value_unit(time_start, timezone)
-            end_query_time = convert_fix_time_value_unit(time_end, timezone)
+            start_query_time = convert_fix_time_value_unit(time_start)
+            end_query_time = convert_fix_time_value_unit(time_end)
         else:
             raise Exception("未知类型的查询时间, 请检查配置: job.query_time_range")
-
-        return datetime.datetime.fromtimestamp(int(start_query_time)).strftime(
-            "%Y-%m-%d %H%M%S"), datetime.datetime.fromtimestamp(int(end_query_time)).strftime("%Y-%m-%d %H%M%S")
+        return start_query_time, end_query_time
 
     # 查询数据
     def query_data(self):
         self.query_time_start, self.query_time_end = self.convert_query_time_range(
             self.task_data["job"]["query_time_range"],
-            self.task_data["common"]["query_timezone"],
         )
         base_url = self.task_data["common"]["query_base_url"]
         duration_threshold = self.task_data["common"]["query_duration_threshold"]
         ignore_endpoints = self.task_data["common"]["query_ignore_endpoints"]
         resp_data = Skywalking(base_url).get_slow_endpoints(self.query_time_start, self.query_time_end,
                                                             duration_threshold,
-                                                            ignore_endpoints)
+                                                            ignore_endpoints,
+                                                            self.task_data["common"]["query_compensate_timezone"])
         return resp_data
 
     def start(self):
@@ -257,10 +242,10 @@ class SkywalkingAlarm(object):
             self.now_time_second = int(time.time())
             self.get_init_service_damage_time_point()
             query_result = self.query_data()
+            logger.debug("query_result: " + str(query_result))
             if len(query_result) < 1:
                 self.set_init_service_damage_time_point()
                 return
-            logger.debug("query_result: " + str(query_result))
             total_alarm_msg = self.gen_total_alarm_msg(query_result)
             logger.debug(total_alarm_msg)
             detail_alarm_msg, at_phone_list = self.gen_detail_alarm_msg(query_result)
