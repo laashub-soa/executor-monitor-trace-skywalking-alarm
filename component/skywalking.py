@@ -127,7 +127,7 @@ class Skywalking(object):
         return self.do_query(query)
 
     def get_slow_endpoints(self, query_time_start, query_time_end, duration_threshold, ignore_endpoints,
-                           query_compensate_timezone):
+                           ignore_services, query_compensate_timezone):
         result = []
         # 将补偿查询时区加到时间查询条件上, 并且转换为skywalking查询所需要的时间格式
         query_time_start = (datetime.datetime.fromtimestamp(query_time_start) + datetime.timedelta(
@@ -145,6 +145,8 @@ class Skywalking(object):
             trace_id = item["traceIds"][0]
             duration = item["duration"]
             service_code = self.query_service_code__by_trace_id(trace_id)
+            if service_code in ignore_services:
+                continue
             self.push_2_summary_result(service_code, endpoint_name, duration, trace_id)
         # 得到排序后的结果
         summary_service_result = []

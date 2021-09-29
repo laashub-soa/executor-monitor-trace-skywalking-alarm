@@ -230,9 +230,10 @@ class SkywalkingAlarm(object):
         base_url = self.task_data["common"]["query_base_url"]
         duration_threshold = self.task_data["common"]["query_duration_threshold"]
         ignore_endpoints = self.task_data["common"]["query_ignore_endpoints"]
+        ignore_services = self.task_data["common"]["query_ignore_services"]
         resp_data = Skywalking(base_url).get_slow_endpoints(self.query_time_start, self.query_time_end,
                                                             duration_threshold,
-                                                            ignore_endpoints,
+                                                            ignore_endpoints, ignore_services,
                                                             self.task_data["common"]["query_compensate_timezone"])
         return resp_data
 
